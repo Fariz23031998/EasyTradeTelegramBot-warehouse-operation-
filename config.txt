@@ -1,0 +1,6 @@
+{
+    "host": "localhost",
+    "database": "easytrade_db",
+    "user": "easytrade",
+    "password": "masterkey",
+}
