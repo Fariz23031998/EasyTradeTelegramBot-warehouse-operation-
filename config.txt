@@ -3,4 +3,5 @@
     "database": "easytrade_db",
     "user": "easytrade",
     "password": "masterkey",
+    'token': '7287282407:AAGLa16b8X4fHiXLSlV_ZApVktNnKoKGlnE'
 }
