@@ -4,6 +4,7 @@ from datetime import datetime
 import time
 import os
 from collections import defaultdict
+from copy import deepcopy
 
 
 def write_log_file(text):
@@ -120,78 +121,79 @@ class FetchOperationData:
             return False
 
     def check_operations_changes(self):
-        my_cursor = self.mysql_conn.cursor()
-        my_cursor.execute("RESET QUERY CACHE")
+        try:
+            my_cursor = self.mysql_conn.cursor()
+            my_cursor.execute("RESET QUERY CACHE")
 
-        query_get_last_operations = """
-        SELECT
-            G1.gd_id,
-            CASE 
-                WHEN G1.gd_sc_parent > 0 THEN G2.gd_code
-                ELSE G1.gd_code
-            END AS gd_code,
-            CASE 
-                WHEN G1.gd_sc_parent > 0 THEN G2.gd_name 
-                ELSE G1.gd_name 
-            END AS gd_name,
-            O.opr_quantity,
-            OA.oap_cost,
-            OA.oap_price1,
-            CASE 
-                WHEN G1.gd_sc_parent > 0 THEN U2.unt_name
-                ELSE U1.unt_name
-            END AS unit_name,
-            S.sct_name,
-            O.opr_positive,
-            O.opr_type,
-            O.opr_document,
-            O.opr_id,
-            O.opr_last_update
-        FROM operations O
-        LEFT JOIN operations_additional_prop OA ON OA.oap_id = O.opr_id
-        LEFT JOIN dir_goods G1 ON O.opr_good = G1.gd_id
-        LEFT JOIN dir_goods G2 ON G1.gd_sc_parent = G2.gd_id
-        LEFT JOIN dir_units U1 ON U1.unt_id = G1.gd_unit
-        LEFT JOIN dir_units U2 ON U2.unt_id = G2.gd_unit
-        LEFT JOIN dir_goods_additional_prop GA ON G1.gd_id = GA.gdap_good
-        LEFT JOIN dir_sizechart S ON GA.gdap_size = S.sct_id
-        WHERE O.opr_last_update > %s
-            AND O.opr_type IN (1, 3, 4, 5, 7)
-        ORDER BY O.opr_last_update ASC
-        """
+            query_get_last_operations = """
+            SELECT
+                G1.gd_id,
+                CASE 
+                    WHEN G1.gd_sc_parent > 0 THEN G2.gd_code
+                    ELSE G1.gd_code
+                END AS gd_code,
+                CASE 
+                    WHEN G1.gd_sc_parent > 0 THEN G2.gd_name 
+                    ELSE G1.gd_name 
+                END AS gd_name,
+                O.opr_quantity,
+                OA.oap_cost,
+                OA.oap_price1,
+                CASE 
+                    WHEN G1.gd_sc_parent > 0 THEN U2.unt_name
+                    ELSE U1.unt_name
+                END AS unit_name,
+                S.sct_name,
+                O.opr_positive,
+                O.opr_type,
+                O.opr_document,
+                O.opr_id,
+                O.opr_last_update
+            FROM operations O
+            LEFT JOIN operations_additional_prop OA ON OA.oap_id = O.opr_id
+            LEFT JOIN dir_goods G1 ON O.opr_good = G1.gd_id
+            LEFT JOIN dir_goods G2 ON G1.gd_sc_parent = G2.gd_id
+            LEFT JOIN dir_units U1 ON U1.unt_id = G1.gd_unit
+            LEFT JOIN dir_units U2 ON U2.unt_id = G2.gd_unit
+            LEFT JOIN dir_goods_additional_prop GA ON G1.gd_id = GA.gdap_good
+            LEFT JOIN dir_sizechart S ON GA.gdap_size = S.sct_id
+            WHERE O.opr_last_update > %s
+                AND O.opr_type IN (1, 3, 4, 5, 7)
+            ORDER BY O.opr_last_update ASC
+            """
 
-        my_cursor.execute(query_get_last_operations, (self.last_changes_time, ))
-        last_operations = my_cursor.fetchall()
-        if last_operations:
-            last_operation_time = last_operations[-1][-1]
-            self.last_operation_id = last_operations[-1][11]
-            if self.last_changes_time == datetime(2000, 1, 1, 00, 00, 00):
-                self.last_changes_time = last_operation_time
-            elif self.last_changes_time < last_operation_time:
-                last_operations_dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-                all_department = defaultdict(lambda: defaultdict(list))
-                for operation in last_operations:
-                    operation_type = operation[9]
-                    is_operation_positive = operation[8]
-                    operation_document = operation[10]
-                    department = operation[7] if operation[7] else 'without_department'
-                    if operation_type == 1:
-                        last_operations_dict[department]['purchases'][operation_document].append(operation)
-                        all_department['purchases'][operation_document].append(operation)
-                    elif operation_type == 5:
-                        last_operations_dict[department]['returns'][operation_document].append(operation)
-                        all_department['returns'][operation_document].append(operation)
-                    elif operation_type in (3, 4):
-                        last_operations_dict[department]['inouts'][operation_document].append(operation)
-                        all_department['inouts'][operation_document].append(operation)
-                    elif operation_type == 7:
-                        last_operations_dict[department]['movements'][operation_document].append(operation)
-                        all_department['movements'][operation_document].append(operation)
+            my_cursor.execute(query_get_last_operations, (self.last_changes_time, ))
+            last_operations = my_cursor.fetchall()
+            if last_operations:
+                last_operation_time = last_operations[-1][-1]
+                self.last_operation_id = last_operations[-1][11]
+                if self.last_changes_time == datetime(2000, 1, 1, 00, 00, 00):
+                    self.last_changes_time = last_operation_time
+                elif self.last_changes_time < last_operation_time:
+                    last_operations_dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+                    all_department = defaultdict(lambda: defaultdict(list))
+                    for operation in last_operations:
+                        operation_type = operation[9]
+                        is_operation_positive = operation[8]
+                        operation_document = operation[10]
+                        department = operation[7] if operation[7] else 'without_department'
+                        if operation_type == 1:
+                            last_operations_dict[department]['purchases'][operation_document].append(operation)
+                            all_department['purchases'][operation_document].append(operation)
+                        elif operation_type == 5:
+                            last_operations_dict[department]['returns'][operation_document].append(operation)
+                            all_department['returns'][operation_document].append(operation)
+                        elif operation_type in (3, 4):
+                            last_operations_dict[department]['inouts'][operation_document].append(operation)
+                            all_department['inouts'][operation_document].append(operation)
+                        elif operation_type == 7:
+                            last_operations_dict[department]['movements'][operation_document].append(operation)
+                            all_department['movements'][operation_document].append(operation)
 
-
-                last_operations_dict_all_department = {'all': all_department}
-                self.last_changes_time = last_operation_time
-                return last_operations_dict, last_operations_dict_all_department, last_operation_time
+                    last_operations_dict_all_department = {'all': all_department}
+                    return last_operations_dict, last_operations_dict_all_department, last_operation_time
+        except Error as e:
+            write_log_file(f"Can't connect to the MySQL. {e} {self.get_date()}")
 
     def get_document_info(self, document_type, document_id):
         my_cursor = self.mysql_conn.cursor()
@@ -340,28 +342,33 @@ class FetchOperationData:
     def test_class_function(self):
         if self.is_mysql_connected():
             last_operations_tuple = self.check_operations_changes()
+            last_documents_statuses = deepcopy(self.last_sent_docs_status_dict)
 
             if last_operations_tuple:
                 last_operations_each_department = last_operations_tuple[0]
                 last_operations_all_department = last_operations_tuple[1]
-                last_operations_time = last_operations_tuple[2]
+                last_operation_time = last_operations_tuple[2]
                 all_departments_notifications = self.format_notification(
-                    last_warehouse_operations=last_operations_all_department
+                    last_warehouse_operations=last_operations_all_department,
+                    last_documents_statuses=last_documents_statuses
                 )
-                # if all_departments_notifications:
-                #     for document_id, notification_content in all_departments_notifications['all'].items():
-                #         print(notification_content)
-                #         self.last_changes_time = last_operations_time
+                if all_departments_notifications:
+                    for document_id, notification_content in all_departments_notifications['all'].items():
+                        print(notification_content)
+
 
                 each_departments_notifications = self.format_notification(
                     last_warehouse_operations=last_operations_each_department,
+                    last_documents_statuses=last_documents_statuses
                 )
                 if each_departments_notifications:
-                    for each_department, each_department_data in each_departments_notifications.items():
-                        for document_type, document_type_data in each_department_data.items():
-                            print(document_type_data)
+                    for department, department_data in each_departments_notifications.items():
+                        for document_id, notification_string in department_data.items():
+                            print(notification_string)
 
-    def format_notification(self, last_warehouse_operations):
+                self.last_changes_time = last_operation_time
+
+    def format_notification(self, last_warehouse_operations, last_documents_statuses):
         document_notification_dict = defaultdict(lambda: defaultdict(str))
         if not last_warehouse_operations:
             return False
@@ -371,12 +378,10 @@ class FetchOperationData:
                 for document_id, document_data in document_type_data.items():
                     document_info = self.get_document_info(document_type, document_id)
                     is_document_performed = document_info[8] if 'movements' == document_type else document_info[7]
-
-                    if is_document_performed == 0 and document_id not in self.last_sent_docs_status_dict[document_type]:
+                    if is_document_performed == 0 and document_id not in last_documents_statuses[document_type]:
                         return False
-                    elif document_id in self.last_sent_docs_status_dict[document_type]:
-                        print('True')
-                        if is_document_performed != self.last_sent_docs_status_dict[document_type][document_id]:
+                    elif document_id in last_documents_statuses[document_type]:
+                        if is_document_performed == last_documents_statuses[document_type][document_id]:
                             return False
 
                     formatted_user_name = self.format_lastname_firstname_phone(
@@ -410,7 +415,7 @@ class FetchOperationData:
                         doc_description = f'\nПримечание: {document_info[1]}'
 
                     document_description = f"""
-{self.document_type_name(document_type, document_id, is_document_performed, inout_type)}{department_name}
+<b>{self.document_type_name(document_type, document_id, is_document_performed, inout_type)}{department_name}</b>
 Исполнитель: {formatted_user_name}
 Склад: {warehouse_name}{formatted_vendor_name}
 Дата и время: {format_date(document_info[2])}
@@ -426,27 +431,28 @@ class FetchOperationData:
                             department_name = f' ({operation[7]})' if operation[7] else ''
                             operation_total_cost = operation[3] * operation[4]
                             operation_total_price = operation[3] * operation[5]
-                            document_operations_text += f"""{30 * '-'}
+                            document_operations_text += f"""{50 * '-'}
 {operation_order}. K:{operation[1]}, {operation[2]}{department_name}
-{format_number(operation[3])} ({operation[6]}) x {format_number(operation[4])} = {format_number(operation_total_cost)}, x {format_number(operation[5])} = {format_number(operation_total_price)}
+<b>{format_number(operation[3])} ({operation[6]})</b> x {format_number(operation[4])} = {format_number(operation_total_cost)}, x {format_number(operation[5])} = {format_number(operation_total_price)}
 """
                             operation_order += 1
                             total_cost_document += operation_total_cost
                             total_sum_document += operation_total_price
 
                     if operation_order > 1:
-                        document_notification_dict[department][document_id] += document_description + f"""{30 * '-'}
-Сумма стоимости: {format_number(total_cost_document)}
-Сумма: {format_number(total_sum_document)}
-Количество операции: {operation_order-1}
+                        document_notification_dict[department][document_id] += document_description + f"""{50 * '-'}
+<b>Сумма стоимости: {format_number(total_cost_document)}</b>
+<b>Сумма: {format_number(total_sum_document)}</b>
+<b>Количество операции: {operation_order-1}</b>
 """
                         document_notification_dict[department][document_id] += document_operations_text
+
                     self.last_sent_docs_status_dict[document_type][document_id] = is_document_performed
 
         return document_notification_dict
 
-test = FetchOperationData()
-while True:
-    test.test_class_function()
-    time.sleep(1)
+# test = FetchOperationData()
+# while True:
+#     test.test_class_function()
+#     time.sleep(1)
 
