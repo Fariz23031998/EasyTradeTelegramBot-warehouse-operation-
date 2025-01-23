@@ -5,11 +5,8 @@ import time
 import os
 from collections import defaultdict
 from copy import deepcopy
+import inspect
 
-
-def write_log_file(text):
-    with open("log.txt", "a", encoding='utf-8') as file:
-        file.write(text + '\n')
 
 
 with open("config.txt", encoding='utf-8') as config_file:
@@ -21,6 +18,20 @@ database = config["database"]
 user = config["user"]
 password = config["password"]
 limit_operation = config['limit_operation']
+
+
+def get_date():
+    now = datetime.now()
+    return now.strftime("%m/%d/%Y %H:%M:%S")
+
+
+def get_line_number():
+    return inspect.currentframe().f_back.f_lineno
+
+
+def write_log_file(text):
+    with open("log.txt", "a", encoding='utf-8') as file:
+        file.write(f"{text} (Line: {get_line_number()}, {get_date()})\n")
 
 
 def format_number(number: float) -> str:
@@ -36,7 +47,8 @@ def format_number(number: float) -> str:
 
     if not decimal_part or decimal_part[0] == '0':
         return formatted_integer
-    return f"{formatted_integer}.{decimal_part[0]}"
+
+    return f"{formatted_integer}.{decimal_part[0][:2]}"
 
 
 def delete_receipt_files():
@@ -87,13 +99,38 @@ class FetchOperationData:
         self.connect_mysql()
         if self.is_mysql_connected():
             self.get_documents_status()
+            # self.check_and_create_indexes()
 
         with open("log.txt", 'w', encoding='utf-8') as file:
-            file.write(f"File created at {self.get_date()}\n")
+            file.write(f"File created at {get_date()}\n")
 
-    def get_date(self):
-        now = datetime.now()
-        return now.strftime("%m/%d/%Y %H:%M:%S")
+    def check_and_create_indexes(self):
+        # Check existing indexes
+        my_cursor = self.mysql_conn.cursor()
+        my_cursor.execute("""
+           SELECT INDEX_NAME 
+           FROM information_schema.STATISTICS 
+           WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME IN ('operations', 'operations_additional_prop', 'dir_goods')
+       """)
+        existing_indexes = [row[0] for row in my_cursor.fetchall()]
+
+        # Define indexes
+        indexes = {
+            'idx_opr_last_update': "CREATE INDEX idx_opr_last_update ON operations(opr_last_update, opr_type)",
+            'idx_opr_good': "CREATE INDEX idx_opr_good ON operations(opr_good)",
+            'idx_oap_id': "CREATE INDEX idx_oap_id ON operations_additional_prop(oap_id)",
+            'idx_gd_sc_parent': "CREATE INDEX idx_gd_sc_parent ON dir_goods(gd_sc_parent)"
+        }
+
+        # Create missing indexes
+        for index_name, create_query in indexes.items():
+            if index_name not in existing_indexes:
+                try:
+                    my_cursor.execute(create_query)
+                    print(f"Created index: {index_name}")
+                except mysql.connector.Error as err:
+                    print(f"Error creating {index_name}: {err}")
 
     def connect_mysql(self):
         try:
@@ -104,7 +141,8 @@ class FetchOperationData:
                 database=database,
             )
         except Error as e:
-            write_log_file(f"Can't connect to the MySQL. {e} {self.get_date()}")
+            print(f"Line: {get_line_number()}, Can't connect to the MySQL. {e} {get_date()}")
+            write_log_file(f"Can't connect to the MySQL. {e}")
             return False
         else:
             return True
@@ -114,11 +152,13 @@ class FetchOperationData:
             if self.mysql_conn.is_connected():
                 return True
             else:
-                write_log_file("Failed to connect to MySQL")
+                print(f"Line: {get_line_number()}, Failed to connect to MySQL")
+                write_log_file(f"Failed to connect to MySQL")
                 self.connect_mysql()
                 return False
         else:
-            write_log_file("Failed to connect to MySQL")
+            print(f"Line: {get_line_number()}, Failed to connect to MySQL")
+            write_log_file(f"Failed to connect to MySQL")
             self.connect_mysql()
             return False
 
@@ -130,21 +170,12 @@ class FetchOperationData:
             query_get_last_operations = """
             SELECT
                 G1.gd_id,
-                CASE 
-                    WHEN G1.gd_sc_parent > 0 THEN G2.gd_code
-                    ELSE G1.gd_code
-                END AS gd_code,
-                CASE 
-                    WHEN G1.gd_sc_parent > 0 THEN G2.gd_name 
-                    ELSE G1.gd_name 
-                END AS gd_name,
+                IF(G1.gd_sc_parent > 0, G2.gd_code, G1.gd_code) AS gd_code,
+                IF(G1.gd_sc_parent > 0, G2.gd_name, G1.gd_name) AS gd_name,
                 O.opr_quantity,
                 OA.oap_cost,
                 OA.oap_price1,
-                CASE 
-                    WHEN G1.gd_sc_parent > 0 THEN U2.unt_name
-                    ELSE U1.unt_name
-                END AS unit_name,
+                IF(G1.gd_sc_parent > 0, U2.unt_name, U1.unt_name) AS unit_name,
                 S.sct_name,
                 O.opr_positive,
                 O.opr_type,
@@ -152,13 +183,13 @@ class FetchOperationData:
                 O.opr_id,
                 O.opr_last_update
             FROM operations O
-            LEFT JOIN operations_additional_prop OA ON OA.oap_id = O.opr_id
-            LEFT JOIN dir_goods G1 ON O.opr_good = G1.gd_id
-            LEFT JOIN dir_goods G2 ON G1.gd_sc_parent = G2.gd_id
-            LEFT JOIN dir_units U1 ON U1.unt_id = G1.gd_unit
-            LEFT JOIN dir_units U2 ON U2.unt_id = G2.gd_unit
-            LEFT JOIN dir_goods_additional_prop GA ON G1.gd_id = GA.gdap_good
-            LEFT JOIN dir_sizechart S ON GA.gdap_size = S.sct_id
+                LEFT JOIN operations_additional_prop OA ON O.opr_id = OA.oap_operation 
+                LEFT JOIN dir_goods G1 ON O.opr_good = G1.gd_id
+                LEFT JOIN dir_goods G2 ON G1.gd_sc_parent = G2.gd_id
+                LEFT JOIN dir_units U1 ON U1.unt_id = G1.gd_unit
+                LEFT JOIN dir_units U2 ON U2.unt_id = G2.gd_unit
+                LEFT JOIN dir_goods_additional_prop GA ON G1.gd_id = GA.gdap_good
+                LEFT JOIN dir_sizechart S ON GA.gdap_size = S.sct_id
             WHERE O.opr_last_update > %s
                 AND O.opr_type IN (1, 3, 4, 5, 7)
             ORDER BY O.opr_last_update DESC
@@ -197,7 +228,8 @@ class FetchOperationData:
                     last_operations_dict_all_department = {'all': all_department}
                     return last_operations_dict, last_operations_dict_all_department, last_operation_time
         except Error as e:
-            write_log_file(f"Can't connect to the MySQL. {e} {self.get_date()}")
+            print(f"Line: {get_line_number()}, Can't connect to the MySQL. {e} {get_date()}")
+            write_log_file(f"Can't connect to the MySQL. {e}")
 
     def get_document_info(self, document_type, document_id):
         my_cursor = self.mysql_conn.cursor()
@@ -359,7 +391,6 @@ class FetchOperationData:
                 if all_departments_notifications:
                     for document_id, notification_content in all_departments_notifications['all'].items():
                         print(notification_content)
-
 
                 each_departments_notifications = self.format_notification(
                     last_warehouse_operations=last_operations_each_department,
