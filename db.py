@@ -20,6 +20,8 @@ host = config["host"]
 database = config["database"]
 user = config["user"]
 password = config["password"]
+limit_operation = config['limit_operation']
+
 
 def format_number(number: float) -> str:
     str_num = str(number)
@@ -159,11 +161,13 @@ class FetchOperationData:
             LEFT JOIN dir_sizechart S ON GA.gdap_size = S.sct_id
             WHERE O.opr_last_update > %s
                 AND O.opr_type IN (1, 3, 4, 5, 7)
-            ORDER BY O.opr_last_update ASC
+            ORDER BY O.opr_last_update DESC
+            LIMIT %s
             """
 
-            my_cursor.execute(query_get_last_operations, (self.last_changes_time, ))
+            my_cursor.execute(query_get_last_operations, (self.last_changes_time, limit_operation))
             last_operations = my_cursor.fetchall()
+            last_operations.reverse()
             if last_operations:
                 last_operation_time = last_operations[-1][-1]
                 self.last_operation_id = last_operations[-1][11]

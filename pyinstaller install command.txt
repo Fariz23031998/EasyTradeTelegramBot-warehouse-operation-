@@ -1,0 +1,1 @@
+pyinstaller --onefile --name=EasyTradeWarehouseOperationTelegramBot --icon=logo.ico main.py

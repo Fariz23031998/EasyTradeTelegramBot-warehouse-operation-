@@ -19,6 +19,7 @@ USERS_FILE = "users.json"
 
 fetch_operation_data = FetchOperationData()
 
+
 def split_string(text: str, max_length: int = 4096) -> list[str]:
     if len(text) <= max_length:
         return [text]
@@ -121,6 +122,7 @@ def prepare_notifications():
                         department='all',
                     )
                     print(result)
+                    write_log_file(f'Short string: {result}')
 
             each_departments_notifications = fetch_operation_data.format_notification(
                 last_warehouse_operations=last_operations_each_department,
@@ -135,6 +137,7 @@ def prepare_notifications():
                             department=department,
                         )
                         print(result)
+                        write_log_file(f'Long string: {result}')
 
 
 def send_department_notification(last_operation_time, message: str, department: str = None) -> Dict:
@@ -161,9 +164,11 @@ def send_department_notification(last_operation_time, message: str, department: 
 
     return results
 
+
 def main():
     task = BackgroundTask(background_task=prepare_notifications)
     task.start()
+
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,11 @@ import threading
 import time
 from itertools import batched
 
+with open("config.txt", encoding='utf-8') as config_file:
+    config = eval(config_file.read())
+
+sync_time = config['sync_time']
+
 
 class BackgroundTask:
     def __init__(self, background_task):
@@ -14,7 +19,7 @@ class BackgroundTask:
         while self.is_running:
             self.background_task()
             # print("Working...")
-            time.sleep(1)  # Simulate some work
+            time.sleep(sync_time)  # Simulate some work
         print("Background task stopped")
 
     def start(self):
