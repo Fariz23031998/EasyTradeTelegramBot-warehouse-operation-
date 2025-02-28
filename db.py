@@ -8,7 +8,6 @@ from copy import deepcopy
 import inspect
 
 
-
 with open("config.txt", encoding='utf-8') as config_file:
     config = eval(config_file.read())
 

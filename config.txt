@@ -5,5 +5,5 @@
     "password": "masterkey",
     'token': '7287282407:AAGLa16b8X4fHiXLSlV_ZApVktNnKoKGlnE',
     'sync_time': 10,
-    'limit_operation': 100
+    'limit_operation': 1000
 }

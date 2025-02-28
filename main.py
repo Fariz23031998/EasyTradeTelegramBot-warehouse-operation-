@@ -7,7 +7,10 @@ import os
 from db import FetchOperationData, write_log_file
 from background_task import BackgroundTask
 from copy import deepcopy
+import unicodedata
+import asyncio
 
+# pyinstaller --onefile --name=EasyTradeWarehouseOperationTelegramBot --icon=logo.ico main.py
 with open("config.txt", encoding='utf-8') as config_file:
     config = eval(config_file.read())
 
@@ -57,32 +60,50 @@ def save_users(users: Dict) -> None:
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=4)
 
+def normalize_font(text):
+    if not text:
+        return "Не указан"
+    return ''.join(
+        unicodedata.normalize('NFKD', char)[0]
+        for char in text
+    )
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     """Handle /start command."""
     user_id = str(message.from_user.id)
     users = load_users()
+    telegram_last_name = normalize_font(message.from_user.last_name)
+    telegram_first_name = normalize_font(message.from_user.first_name)
+    telegram_username = message.from_user.username if message.from_user.username else "Не указано"
 
     if user_id not in users:
         users[user_id] = {
             'status': 'inactive',
-            'departments': ['department']
+            'departments': ['department'],
+            'firstname': telegram_first_name,
+            'lastname': telegram_last_name,
+            'username': telegram_username
         }
         save_users(users)
-        bot.reply_to(message, "Добро пожаловать! Вы зарегистрированы. Ваш статус в данный момент неактивен.")
+        send_notification(user_id, "Ваш аккаунт успешно зарегистрирован!")
     else:
-        bot.reply_to(message, "Добро пожаловать! Вы уже зарегистрированы.")
+        send_notification(user_id, "Вы уже зарегистрированы!")
 
 
 def send_notification(user_id: str, message_text: str) -> bool:
     try:
         bot.send_message(int(user_id), message_text, parse_mode='HTML')
-        return True
+
     except Exception as e:
         print(f"Error sending message to user {user_id}: {e}")
         write_log_file(f"Error sending message to user {user_id}: {e}")
         return False
+    else:
+        print(f"message was successfully sent!")
+        return True
+
+
 
 
 @bot.message_handler(commands=['status'])
@@ -115,7 +136,6 @@ def prepare_notifications():
             )
             if all_departments_notifications:
                 for document_id, notification_string in all_departments_notifications['all'].items():
-                    # print(notification_string)
                     result = send_department_notification(
                         last_operation_time=last_operation_time,
                         message=notification_string,
@@ -165,13 +185,38 @@ def send_department_notification(last_operation_time, message: str, department: 
     return results
 
 
+def check_if_already_running():
+    pid = str(os.getpid())
+    pid_file = "bot.pid"
+
+    if os.path.isfile(pid_file):
+        with open(pid_file, 'r') as f:
+            old_pid = f.read().strip()
+        try:
+            # Check if process with old PID is still running
+            os.kill(int(old_pid), 0)
+            print(f"Bot is already running with PID {old_pid}. Exiting.")
+            exit(1)
+        except OSError:
+            # Process not found, safe to continue
+            pass
+        except SystemError:
+            pass
+
+    # Write current PID to file
+    with open(pid_file, 'w') as f:
+        f.write(pid)
+
+
 def main():
     task = BackgroundTask(background_task=prepare_notifications)
     task.start()
 
 
 if __name__ == "__main__":
+    check_if_already_running()
     main()
     print("Bot started...")
     write_log_file('Bot started...')
-    bot.infinity_polling()
+    bot.infinity_polling(timeout=60, long_polling_timeout=30)
+

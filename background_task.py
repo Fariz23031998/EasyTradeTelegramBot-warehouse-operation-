@@ -17,6 +17,7 @@ class BackgroundTask:
     def background_function(self):
         print("Background task started")
         while self.is_running:
+            print("background task is running")
             self.background_task()
             # print("Working...")
             time.sleep(sync_time)  # Simulate some work
